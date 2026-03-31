@@ -1,3 +1,6 @@
+const dotenv = require('dotenv');
+dotenv.config();
+
 const express = require('express');
 const mongodb = require('./data/database');
 const app = express();
@@ -6,10 +9,15 @@ const port = process.env.PORT || 3000;
 
 app.use('/', require('./routes'));
 
+// Global error handler
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).json({ message: err.message || 'Something broke!' });
+});
 
 mongodb.initDb((err) => {
     if (err) {
-        console.error('Failed to connect to the database');
+        console.error('Failed to connect to the database:', err);
     } else {
         app.listen(port, () => {
             console.log(`Database is listening and node running on port ${port}`);
