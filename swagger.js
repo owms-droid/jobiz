@@ -6,7 +6,7 @@ const doc = {
         description: 'App that helps to offer your services and get clients',
     },
     host: 'localhost:3000',
-    schemes: ['http', 'https'],
+    schemes: ['https', 'http'],
     securityDefinitions: {
         githubOAuth: {
             type: 'oauth2',
