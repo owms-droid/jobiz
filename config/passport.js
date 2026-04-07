@@ -2,6 +2,7 @@ const passport = require('passport');
 const GitHubStrategy = require('passport-github2').Strategy;
 const mongodb = require('../data/database');
 
+
 passport.use(
     new GitHubStrategy(
         {
