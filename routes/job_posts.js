@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
-
 const jobPostController = require('../controllers/job_posts');
+const { isAuthenticated } = require('../middleware/authenticate');
 
 router.get('/', jobPostController.getAllPosts);
-router.post('/', jobPostController.createPost);
+router.post('/', isAuthenticated, jobPostController.createPost);
 router.get('/:id', jobPostController.getPostById);
-router.put('/:id', jobPostController.updatePost);
-router.delete('/:id', jobPostController.deletePost);
+router.put('/:id', isAuthenticated, jobPostController.updatePost);
+router.delete('/:id', isAuthenticated, jobPostController.deletePost);
 
 module.exports = router;

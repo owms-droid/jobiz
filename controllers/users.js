@@ -1,5 +1,6 @@
 const mongodb = require('../data/database');
 const ObjectId = require('mongodb').ObjectId;
+const bcrypt = require('bcryptjs');
 
 const getAllUsers = async (req, res, next) => {
     // #swagger.tags = ['Users']
@@ -36,26 +37,21 @@ const getUserById = async (req, res, next) => {
 
 const createUser = async (req, res, next) => {
     // #swagger.tags = ['Users']
-    const user = {
-        full_name: req.body.full_name,
-        dni_number: req.body.dni_number,
-        age: req.body.age,
-        email: req.body.email,
-        password_hash: req.body.password_hash,
-        role: req.body.role,
-        address: req.body.address,
-        skills: req.body.skills,
-    };
+    const { full_name, email, password, dni_number, age, role, address, skills } = req.body;
 
-    if (!user.full_name || !user.email) {
-        res.status(400).json({ message: 'full_name and email are required.' });
+    if (!full_name || !email || !password) {
+        res.status(400).json({ message: 'full_name, email, and password are required.' });
         return;
     }
 
     try {
+        const password_hash = await bcrypt.hash(password, 12);
+        const user = { full_name, dni_number, age, email, password_hash, role, address, skills };
+
         const response = await mongodb.getDatabase().db().collection('users').insertOne(user);
         if (response.acknowledged) {
-            res.status(201).json({ _id: response.insertedId, ...user });
+            const { password_hash: _omit, ...safeUser } = user;
+            res.status(201).json({ _id: response.insertedId, ...safeUser });
             return;
         }
         res.status(500).json({ message: 'Some error occurred while creating the user.' });
