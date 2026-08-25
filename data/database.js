@@ -8,8 +8,18 @@ const initDb = (callback) => {
         return callback(null, database);
     }
     MongoClient.connect(process.env.MONGODB_URI)
-        .then((client) => {
+        .then(async (client) => {
             database = client;
+            
+            // Database-level constraints validation
+            // Creates a unique index on 'email' to guarantee email uniqueness at the schema level.
+            try {
+                await client.db().collection('users').createIndex({ email: 1 }, { unique: true });
+                console.log('Database constraints: verified unique index on users.email');
+            } catch (indexErr) {
+                console.error('Database constraints warning: failed to verify unique index on users.email', indexErr);
+            }
+
             callback(null, database);
         })
         .catch((err) => {

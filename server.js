@@ -1,6 +1,17 @@
 const express = require('express');
 const dotenv = require('dotenv');
 dotenv.config();
+
+// Ensure critical environment variables are defined before starting
+if (!process.env.SESSION_SECRET) {
+    console.error('CRITICAL ERROR: SESSION_SECRET environment variable is missing.');
+    process.exit(1);
+}
+if (!process.env.MONGODB_URI) {
+    console.error('CRITICAL ERROR: MONGODB_URI environment variable is missing.');
+    process.exit(1);
+}
+
 const mongodb = require('./data/database');
 const bodyParser = require('body-parser');
 const session = require('express-session');
@@ -14,7 +25,19 @@ const port = process.env.PORT || 3000;
 app
     .use(bodyParser.json())
     .use((req, res, next) => {
-        res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+        const allowedOrigins = process.env.ALLOWED_ORIGINS 
+            ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
+            : [];
+        const origin = req.headers.origin;
+
+        // In non-production environments, be permissive.
+        // In production, only allow whitelisted origins.
+        if (process.env.NODE_ENV !== 'production') {
+            res.setHeader('Access-Control-Allow-Origin', origin || '*');
+        } else if (allowedOrigins.includes(origin)) {
+            res.setHeader('Access-Control-Allow-Origin', origin);
+        }
+
         res.setHeader('Access-Control-Allow-Credentials', 'true');
         res.setHeader(
             'Access-Control-Allow-Headers',
@@ -24,6 +47,11 @@ app
             'Access-Control-Allow-Methods',
             'GET, POST, PUT, DELETE, OPTIONS'
         );
+
+        // Intercept preflight OPTIONS request
+        if (req.method === 'OPTIONS') {
+            return res.sendStatus(200);
+        }
         next();
     })
     .use(
@@ -39,13 +67,22 @@ app
     .use(passport.session())
     .use('/', require('./routes'));
 
+// Centralized JSON Error Handler Middleware
+app.use((err, req, res, next) => {
+    console.error('Unhandled Error:', err.stack || err);
+    res.status(err.status || 500).json({
+        message: err.message || 'An internal server error occurred.',
+        error: process.env.NODE_ENV === 'production' ? undefined : err.stack || err.toString()
+    });
+});
+
 mongodb.initDb((err) => {
     if (err) {
-        console.error('Failed to connect to MongoDB', err);
+        console.error('CRITICAL ERROR: Failed to connect to MongoDB. Exiting...', err);
+        process.exit(1); // Fail-fast deployment check for hosting providers
     } else {
         app.listen(port, () => {
             console.log(`Server is running on port ${port}`);
         });
     }
 });
-

@@ -5,7 +5,11 @@ const bcrypt = require('bcryptjs');
 const getAllUsers = async (req, res, next) => {
     // #swagger.tags = ['Users']
     try {
-        const result = await mongodb.getDatabase().db().collection('users').find();
+        const result = await mongodb
+            .getDatabase()
+            .db()
+            .collection('users')
+            .find({}, { projection: { password_hash: 0 } });
         const users = await result.toArray();
         res.setHeader('Content-Type', 'application/json');
         res.status(200).json(users);
@@ -22,14 +26,17 @@ const getUserById = async (req, res, next) => {
     }
     const userId = new ObjectId(req.params.id);
     try {
-        const result = await mongodb.getDatabase().db().collection('users').find({ _id: userId });
-        const users = await result.toArray();
-        if (!users || users.length === 0) {
+        const user = await mongodb
+            .getDatabase()
+            .db()
+            .collection('users')
+            .findOne({ _id: userId }, { projection: { password_hash: 0 } });
+        if (!user) {
             res.status(404).json('User was not found.');
             return;
         }
         res.setHeader('Content-Type', 'application/json');
-        res.status(200).json(users[0]);
+        res.status(200).json(user);
     } catch (err) {
         res.status(500).json({ message: err.message || 'Some error occurred while retrieving the user.' });
     }
@@ -45,10 +52,32 @@ const createUser = async (req, res, next) => {
     }
 
     try {
-        const password_hash = await bcrypt.hash(password, 12);
-        const user = { full_name, dni_number, age, email, password_hash, role, address, skills };
+        const db = mongodb.getDatabase().db();
+        
+        // Email uniqueness check
+        const existingUser = await db.collection('users').findOne({ email });
+        if (existingUser) {
+            res.status(409).json({ message: 'A user with this email already exists.' });
+            return;
+        }
 
-        const response = await mongodb.getDatabase().db().collection('users').insertOne(user);
+        const password_hash = await bcrypt.hash(password, 12);
+        
+        // Auto bootstrap first Super Admin if email matches env variable
+        const isSuperAdmin = process.env.SUPER_ADMIN_EMAIL && email === process.env.SUPER_ADMIN_EMAIL;
+        
+        const user = { 
+            full_name, 
+            dni_number, 
+            age, 
+            email, 
+            password_hash, 
+            role: isSuperAdmin ? 'superadmin' : (role || 'user'), 
+            address, 
+            skills 
+        };
+
+        const response = await db.collection('users').insertOne(user);
         if (response.acknowledged) {
             const { password_hash: _omit, ...safeUser } = user;
             res.status(201).json({ _id: response.insertedId, ...safeUser });
@@ -67,22 +96,86 @@ const updateUser = async (req, res, next) => {
         return;
     }
 
-    const { full_name, email, dni_number, age, password_hash, role, address, skills } = req.body;
+    const userId = new ObjectId(req.params.id);
+    const { full_name, email, dni_number, age, role, address, skills } = req.body;
 
     if (!full_name || !email) {
         res.status(400).json({ message: 'full_name and email are required.' });
         return;
     }
 
-    const updatedUser = { full_name, dni_number, age, email, password_hash, role, address, skills };
-    const userId = new ObjectId(req.params.id);
-
     try {
-        const response = await mongodb
-            .getDatabase()
-            .db()
+        const db = mongodb.getDatabase().db();
+        const targetUser = await db.collection('users').findOne({ _id: userId });
+        if (!targetUser) {
+            res.status(404).json({ message: 'User was not found.' });
+            return;
+        }
+
+        // Authorization Check:
+        // 1. Owner can update
+        // 2. Super Admin can update anyone
+        // 3. Admin can update normal users (but not other Admins or Super Admins)
+        const isOwner = req.user._id.toString() === req.params.id;
+        const isSuperAdminUser = req.user.role === 'superadmin';
+        const isAdminUser = req.user.role === 'admin';
+
+        let authorized = false;
+        if (isOwner) {
+            authorized = true;
+        } else if (isSuperAdminUser) {
+            authorized = true;
+        } else if (isAdminUser && targetUser.role !== 'admin' && targetUser.role !== 'superadmin') {
+            authorized = true;
+        }
+
+        if (!authorized) {
+            res.status(403).json({ message: 'You are not authorized to update this profile.' });
+            return;
+        }
+
+        // Check for email conflicts
+        const existingUser = await db.collection('users').findOne({ 
+            email, 
+            _id: { $ne: userId } 
+        });
+        if (existingUser) {
+            res.status(409).json({ message: 'A user with this email already exists.' });
+            return;
+        }
+
+        // Construct update operations using $set to prevent overwriting OAuth fields
+        const updateFields = {};
+        if (full_name !== undefined) updateFields.full_name = full_name;
+        if (email !== undefined) updateFields.email = email;
+        if (dni_number !== undefined) updateFields.dni_number = dni_number;
+        if (age !== undefined) updateFields.age = age;
+        if (address !== undefined) updateFields.address = address;
+        if (skills !== undefined) updateFields.skills = skills;
+
+        // Role assignment authorization:
+        // - Super Admin can assign any role ('user', 'admin', 'superadmin')
+        // - Admin can promote to 'admin' or demote to 'user' for users below superadmin status
+        // - Regular users cannot assign roles
+        if (role !== undefined) {
+            if (isSuperAdminUser) {
+                updateFields.role = role;
+            } else if (isAdminUser && ['user', 'admin'].includes(role) && targetUser.role !== 'superadmin') {
+                updateFields.role = role;
+            } else if (role !== targetUser.role) {
+                res.status(403).json({ message: 'You are not authorized to assign this role.' });
+                return;
+            }
+        }
+
+        // Hash new password if provided
+        if (req.body.password) {
+            updateFields.password_hash = await bcrypt.hash(req.body.password, 12);
+        }
+
+        const response = await db
             .collection('users')
-            .replaceOne({ _id: userId }, updatedUser);
+            .updateOne({ _id: userId }, { $set: updateFields });
 
         if (response.matchedCount === 0) {
             res.status(404).json({ message: 'User was not found.' });
@@ -104,11 +197,36 @@ const deleteUser = async (req, res, next) => {
     const userId = new ObjectId(req.params.id);
 
     try {
-        const response = await mongodb
-            .getDatabase()
-            .db()
-            .collection('users')
-            .deleteOne({ _id: userId });
+        const db = mongodb.getDatabase().db();
+        const targetUser = await db.collection('users').findOne({ _id: userId });
+        if (!targetUser) {
+            res.status(404).json({ message: 'User was not found.' });
+            return;
+        }
+
+        // Authorization Check:
+        // 1. Owner can delete
+        // 2. Super Admin can delete anyone
+        // 3. Admin can delete normal users (but not other Admins or Super Admins)
+        const isOwner = req.user._id.toString() === req.params.id;
+        const isSuperAdminUser = req.user.role === 'superadmin';
+        const isAdminUser = req.user.role === 'admin';
+
+        let authorized = false;
+        if (isOwner) {
+            authorized = true;
+        } else if (isSuperAdminUser) {
+            authorized = true;
+        } else if (isAdminUser && targetUser.role !== 'admin' && targetUser.role !== 'superadmin') {
+            authorized = true;
+        }
+
+        if (!authorized) {
+            res.status(403).json({ message: 'You are not authorized to delete this profile.' });
+            return;
+        }
+
+        const response = await db.collection('users').deleteOne({ _id: userId });
 
         if (response.deletedCount === 0) {
             res.status(404).json({ message: 'User was not found.' });

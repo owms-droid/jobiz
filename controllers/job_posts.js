@@ -21,14 +21,13 @@ const getPostById = async (req, res, next) => {
     }
     const postId = new ObjectId(req.params.id);
     try {
-        const result = await mongodb.getDatabase().db().collection('job_posts').find({ _id: postId });
-        const posts = await result.toArray();
-        if (!posts || posts.length === 0) {
+        const post = await mongodb.getDatabase().db().collection('job_posts').findOne({ _id: postId });
+        if (!post) {
             res.status(404).json('Post was not found.');
             return;
         }
         res.setHeader('Content-Type', 'application/json');
-        res.status(200).json(posts[0]);
+        res.status(200).json(post);
     } catch (err) {
         res.status(500).json({ message: err.message || 'Some error occurred while retrieving the post.' });
     }
@@ -36,20 +35,23 @@ const getPostById = async (req, res, next) => {
 
 const createPost = async (req, res, next) => {
     // #swagger.tags = ['Job Posts']
-    const post = {
-        title: req.body.title,
-        description: req.body.description,
-        service_type: req.body.service_type,
-        location: req.body.location,
-        status: req.body.status || 'active',
-        expires_at: req.body.expires_at,
-        created_at: req.body.created_at || new Date().toISOString(),
-    };
+    const { title, description, service_type, location, status, expires_at } = req.body;
 
-    if (!post.title || !post.description) {
+    if (!title || !description) {
         res.status(400).json({ message: 'Title and description are required.' });
         return;
     }
+
+    const post = {
+        title,
+        description,
+        service_type,
+        location,
+        status: status || 'active',
+        expires_at,
+        created_at: req.body.created_at || new Date().toISOString(),
+        user_id: req.user._id, // Associate post with the authenticated user
+    };
 
     try {
         const response = await mongodb.getDatabase().db().collection('job_posts').insertOne(post);
@@ -70,6 +72,7 @@ const updatePost = async (req, res, next) => {
         return;
     }
 
+    const postId = new ObjectId(req.params.id);
     const { title, description, service_type, location, status, expires_at, created_at } = req.body;
 
     if (!title || !description) {
@@ -77,15 +80,39 @@ const updatePost = async (req, res, next) => {
         return;
     }
 
-    const updatedPost = { title, description, service_type, location, status, expires_at, created_at };
-    const postId = new ObjectId(req.params.id);
-
     try {
-        const response = await mongodb
-            .getDatabase()
-            .db()
+        const db = mongodb.getDatabase().db();
+        const post = await db.collection('job_posts').findOne({ _id: postId });
+
+        if (!post) {
+            res.status(404).json({ message: 'Post was not found.' });
+            return;
+        }
+
+        // Authorization Check: Must be the post creator or an admin/superadmin
+        const isCreator = post.user_id && post.user_id.toString() === req.user._id.toString();
+        const hasOverridingRole = req.user.role === 'admin' || req.user.role === 'superadmin';
+
+        if (!isCreator && !hasOverridingRole) {
+            res.status(403).json({ message: 'You are not authorized to update this job post.' });
+            return;
+        }
+
+        // Use updateOne with $set to prevent deleting fields like user_id
+        const updateFields = {
+            title,
+            description,
+            service_type,
+            location,
+            status: status || 'active',
+            expires_at,
+            created_at: created_at || post.created_at,
+            user_id: post.user_id || req.user._id, // Preserve existing creator or take ownership if legacy
+        };
+
+        const response = await db
             .collection('job_posts')
-            .replaceOne({ _id: postId }, updatedPost);
+            .updateOne({ _id: postId }, { $set: updateFields });
 
         if (response.matchedCount === 0) {
             res.status(404).json({ message: 'Post was not found.' });
@@ -107,11 +134,24 @@ const deletePost = async (req, res, next) => {
     const postId = new ObjectId(req.params.id);
 
     try {
-        const response = await mongodb
-            .getDatabase()
-            .db()
-            .collection('job_posts')
-            .deleteOne({ _id: postId });
+        const db = mongodb.getDatabase().db();
+        const post = await db.collection('job_posts').findOne({ _id: postId });
+
+        if (!post) {
+            res.status(404).json({ message: 'Post was not found.' });
+            return;
+        }
+
+        // Authorization Check: Must be the post creator or an admin/superadmin
+        const isCreator = post.user_id && post.user_id.toString() === req.user._id.toString();
+        const hasOverridingRole = req.user.role === 'admin' || req.user.role === 'superadmin';
+
+        if (!isCreator && !hasOverridingRole) {
+            res.status(403).json({ message: 'You are not authorized to delete this job post.' });
+            return;
+        }
+
+        const response = await db.collection('job_posts').deleteOne({ _id: postId });
 
         if (response.deletedCount === 0) {
             res.status(404).json({ message: 'Post was not found.' });
