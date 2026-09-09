@@ -8,13 +8,10 @@ const doc = {
     host: 'localhost:3000',
     schemes: ['https', 'http'],
     securityDefinitions: {
-        githubOAuth: {
-            type: 'oauth2',
-            authorizationUrl: 'https://github.com/login/oauth/authorize',
-            flow: 'implicit',
-            scopes: {
-                'user:email': 'Read user email from GitHub',
-            },
+        sessionCookie: {
+            type: 'apiKey',
+            name: 'connect.sid',
+            in: 'cookie',
         },
     },
 };

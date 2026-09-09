@@ -2,40 +2,39 @@ const express = require('express');
 const dotenv = require('dotenv');
 dotenv.config();
 
-// Ensure critical environment variables are defined before starting
-if (!process.env.SESSION_SECRET) {
-    console.error('CRITICAL ERROR: SESSION_SECRET environment variable is missing.');
-    process.exit(1);
-}
-if (!process.env.MONGODB_URI) {
-    console.error('CRITICAL ERROR: MONGODB_URI environment variable is missing.');
+const { validateEnv } = require('./utils/env');
+
+try {
+    validateEnv();
+    if (process.env.NODE_ENV === 'production' && !process.env.ALLOWED_ORIGINS) {
+        throw new Error('Missing required environment variables: ALLOWED_ORIGINS');
+    }
+} catch (error) {
+    console.error(error.message);
     process.exit(1);
 }
 
 const mongodb = require('./data/database');
-const bodyParser = require('body-parser');
 const session = require('express-session');
 const MongoStore = require('connect-mongo').default || require('connect-mongo');
 const passport = require('./config/passport');
+const { csrfProtection } = require('./middleware/csrf');
 const app = express();
 app.set('trust proxy', 1);
 
 const port = process.env.PORT || 3000;
 
 app
-    .use(bodyParser.json())
+    .use(express.json({ limit: '100kb' }))
     .use((req, res, next) => {
         const allowedOrigins = process.env.ALLOWED_ORIGINS 
             ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) 
             : [];
         const origin = req.headers.origin;
 
-        // In non-production environments, be permissive.
-        // In production, only allow whitelisted origins.
-        if (process.env.NODE_ENV !== 'production') {
-            res.setHeader('Access-Control-Allow-Origin', origin || '*');
-        } else if (allowedOrigins.includes(origin)) {
+        if (origin && (process.env.NODE_ENV !== 'production' || allowedOrigins.includes(origin))) {
             res.setHeader('Access-Control-Allow-Origin', origin);
+            res.setHeader('Vary', 'Origin');
         }
 
         res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -50,7 +49,7 @@ app
 
         // Intercept preflight OPTIONS request
         if (req.method === 'OPTIONS') {
-            return res.sendStatus(200);
+            return res.sendStatus(204);
         }
         next();
     })
@@ -60,11 +59,20 @@ app
             resave: false,
             saveUninitialized: false,
             store: MongoStore.create({ mongoUrl: process.env.MONGODB_URI }),
-            cookie: { secure: process.env.NODE_ENV === 'production' },
+            cookie: {
+                secure: process.env.NODE_ENV === 'production',
+                httpOnly: true,
+                sameSite: 'lax',
+                maxAge: 1000 * 60 * 60 * 24,
+            },
         })
     )
     .use(passport.initialize())
     .use(passport.session())
+    .use(csrfProtection)
+    .get('/health', (req, res) => {
+        res.status(200).json({ ok: true, status: 'healthy' });
+    })
     .use('/', require('./routes'));
 
 // Centralized JSON Error Handler Middleware

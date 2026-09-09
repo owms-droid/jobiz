@@ -1,15 +1,23 @@
 const mongodb = require('../data/database');
 const ObjectId = require('mongodb').ObjectId;
+const { sendServerError } = require('../utils/errors');
 
 const getAllPosts = async (req, res, next) => {
     // #swagger.tags = ['Job Posts']
     try {
-        const result = await mongodb.getDatabase().db().collection('job_posts').find();
+        const page = Math.max(Number.parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(Number.parseInt(req.query.limit, 10) || 20, 1), 100);
+        const now = new Date().toISOString();
+        const result = await mongodb.getDatabase().db().collection('job_posts')
+            .find({ status: 'active', $or: [{ expires_at: null }, { expires_at: { $gte: now } }] })
+            .sort({ created_at: -1 })
+            .skip((page - 1) * limit)
+            .limit(limit);
         const posts = await result.toArray();
         res.setHeader('Content-Type', 'application/json');
         res.status(200).json(posts);
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while retrieving posts.' });
+        sendServerError(res, err, 'Some error occurred while retrieving posts.');
     }
 };
 
@@ -21,7 +29,11 @@ const getPostById = async (req, res, next) => {
     }
     const postId = new ObjectId(req.params.id);
     try {
-        const post = await mongodb.getDatabase().db().collection('job_posts').findOne({ _id: postId });
+        const post = await mongodb.getDatabase().db().collection('job_posts').findOne({
+            _id: postId,
+            status: 'active',
+            $or: [{ expires_at: null }, { expires_at: { $gte: new Date().toISOString() } }],
+        });
         if (!post) {
             res.status(404).json('Post was not found.');
             return;
@@ -29,7 +41,7 @@ const getPostById = async (req, res, next) => {
         res.setHeader('Content-Type', 'application/json');
         res.status(200).json(post);
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while retrieving the post.' });
+        sendServerError(res, err, 'Some error occurred while retrieving the post.');
     }
 };
 
@@ -49,7 +61,7 @@ const createPost = async (req, res, next) => {
         location,
         status: status || 'active',
         expires_at,
-        created_at: req.body.created_at || new Date().toISOString(),
+        created_at: new Date().toISOString(),
         user_id: req.user._id, // Associate post with the authenticated user
     };
 
@@ -61,7 +73,7 @@ const createPost = async (req, res, next) => {
         }
         res.status(500).json({ message: 'Some error occurred while creating the post.' });
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while creating the post.' });
+        sendServerError(res, err, 'Some error occurred while creating the post.');
     }
 };
 
@@ -104,9 +116,9 @@ const updatePost = async (req, res, next) => {
             description,
             service_type,
             location,
-            status: status || 'active',
+            status: status || post.status || 'active',
             expires_at,
-            created_at: created_at || post.created_at,
+            created_at: post.created_at,
             user_id: post.user_id || req.user._id, // Preserve existing creator or take ownership if legacy
         };
 
@@ -120,7 +132,7 @@ const updatePost = async (req, res, next) => {
         }
         res.status(200).json({ message: 'Post updated successfully.' });
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while updating the post.' });
+        sendServerError(res, err, 'Some error occurred while updating the post.');
     }
 };
 
@@ -159,7 +171,7 @@ const deletePost = async (req, res, next) => {
         }
         res.status(200).json({ message: 'Post deleted successfully.' });
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while deleting the post.' });
+        sendServerError(res, err, 'Some error occurred while deleting the post.');
     }
 };
 

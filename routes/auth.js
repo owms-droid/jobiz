@@ -2,6 +2,10 @@ const router = require('express').Router();
 const passport = require('passport');
 const { loginCallback, logout, getProfile } = require('../controllers/auth');
 const { isAuthenticated } = require('../middleware/authenticate');
+const { validateLogin } = require('../middleware/validation');
+const { issueCsrfToken } = require('../middleware/csrf');
+
+router.get('/csrf', issueCsrfToken);
 
 // GET /auth/login  — redirects to GitHub
 router.get(
@@ -13,6 +17,23 @@ router.get(
     */
     passport.authenticate('github', { scope: ['user:email'] })
 );
+
+router.post('/login', validateLogin, (req, res, next) => {
+    /* #swagger.tags = ['Auth']
+       #swagger.summary = 'Login with email and password'
+       #swagger.responses[200] = { description: 'Login successful' }
+       #swagger.responses[401] = { description: 'Invalid credentials' }
+    */
+    passport.authenticate('local', (err, user, info) => {
+        if (err) return next(err);
+        if (!user) return res.status(401).json({ message: info?.message || 'Invalid email or password.' });
+
+        req.logIn(user, (loginError) => {
+            if (loginError) return next(loginError);
+            return loginCallback(req, res);
+        });
+    })(req, res, next);
+});
 
 // GET /auth/github/callback  — GitHub redirects here after login
 router.get(
@@ -27,8 +48,8 @@ router.get(
     loginCallback
 );
 
-// GET /auth/logout
-router.get(
+// POST /auth/logout
+router.post(
     '/logout',
     /*  #swagger.tags = ['Auth']
         #swagger.summary = 'Logout'
@@ -44,7 +65,7 @@ router.get(
     /*  #swagger.tags = ['Auth']
         #swagger.summary = 'Get current user profile'
         #swagger.description = 'Returns profile of the authenticated user. Requires login.'
-        #swagger.security = [{ "githubOAuth": [] }]
+         #swagger.security = [{ "sessionCookie": [] }]
         #swagger.responses[200] = { description: 'User profile returned' }
         #swagger.responses[401] = { description: 'Not authenticated' }
     */

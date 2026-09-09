@@ -12,13 +12,10 @@
     "http"
   ],
   "securityDefinitions": {
-    "githubOAuth": {
-      "type": "oauth2",
-      "authorizationUrl": "https://github.com/login/oauth/authorize",
-      "flow": "implicit",
-      "scopes": {
-        "user:email": "Read user email from GitHub"
-      }
+    "sessionCookie": {
+      "type": "apiKey",
+      "name": "connect.sid",
+      "in": "cookie"
     }
   },
   "paths": {
@@ -52,6 +49,16 @@
         }
       }
     },
+    "/auth/csrf": {
+      "get": {
+        "description": "",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/auth/login": {
       "get": {
         "tags": [
@@ -62,6 +69,41 @@
         "responses": {
           "302": {
             "description": "Redirect to GitHub"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Login with email and password",
+        "description": "GitHub OAuth callback. Sets session and returns logged-in user.",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "email": {
+                  "example": "any"
+                },
+                "password": {
+                  "example": "any"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Login successful"
+          },
+          "400": {
+            "description": "Bad Request"
+          },
+          "401": {
+            "description": "Invalid credentials"
           }
         }
       }
@@ -84,7 +126,7 @@
       }
     },
     "/auth/logout": {
-      "get": {
+      "post": {
         "tags": [
           "Auth"
         ],
@@ -114,7 +156,7 @@
         },
         "security": [
           {
-            "githubOAuth": []
+            "sessionCookie": []
           }
         ]
       }
@@ -137,9 +179,6 @@
           },
           "403": {
             "description": "Forbidden"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
@@ -193,6 +232,9 @@
           "401": {
             "description": "Unauthorized"
           },
+          "403": {
+            "description": "Forbidden"
+          },
           "409": {
             "description": "Conflict"
           },
@@ -226,11 +268,14 @@
           "400": {
             "description": "Bad Request"
           },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden"
+          },
           "404": {
             "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
@@ -298,9 +343,6 @@
           },
           "409": {
             "description": "Conflict"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
@@ -359,9 +401,6 @@
           },
           "404": {
             "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       }
@@ -375,12 +414,21 @@
         "produces": [
           "application/json"
         ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "type": "string"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "type": "string"
+          }
+        ],
         "responses": {
           "200": {
             "description": "OK"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
@@ -406,9 +454,6 @@
                   "example": "any"
                 },
                 "expires_at": {
-                  "example": "any"
-                },
-                "created_at": {
                   "example": "any"
                 },
                 "service_type": {
@@ -463,9 +508,6 @@
           },
           "404": {
             "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
@@ -527,9 +569,6 @@
           },
           "404": {
             "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       },
@@ -561,9 +600,6 @@
           },
           "404": {
             "description": "Not Found"
-          },
-          "500": {
-            "description": "Internal Server Error"
           }
         }
       }

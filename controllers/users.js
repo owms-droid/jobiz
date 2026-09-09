@@ -1,6 +1,7 @@
 const mongodb = require('../data/database');
 const ObjectId = require('mongodb').ObjectId;
 const bcrypt = require('bcryptjs');
+const { sendServerError } = require('../utils/errors');
 
 const getAllUsers = async (req, res, next) => {
     // #swagger.tags = ['Users']
@@ -14,7 +15,7 @@ const getAllUsers = async (req, res, next) => {
         res.setHeader('Content-Type', 'application/json');
         res.status(200).json(users);
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while retrieving users.' });
+        sendServerError(res, err, 'Some error occurred while retrieving users.');
     }
 };
 
@@ -38,13 +39,13 @@ const getUserById = async (req, res, next) => {
         res.setHeader('Content-Type', 'application/json');
         res.status(200).json(user);
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while retrieving the user.' });
+        sendServerError(res, err, 'Some error occurred while retrieving the user.');
     }
 };
 
 const createUser = async (req, res, next) => {
     // #swagger.tags = ['Users']
-    const { full_name, email, password, dni_number, age, role, address, skills } = req.body;
+    const { full_name, email, password, dni_number, age, address, skills } = req.body;
 
     if (!full_name || !email || !password) {
         res.status(400).json({ message: 'full_name, email, and password are required.' });
@@ -55,7 +56,8 @@ const createUser = async (req, res, next) => {
         const db = mongodb.getDatabase().db();
         
         // Email uniqueness check
-        const existingUser = await db.collection('users').findOne({ email });
+        const normalizedEmail = email.toLowerCase();
+        const existingUser = await db.collection('users').findOne({ email: normalizedEmail });
         if (existingUser) {
             res.status(409).json({ message: 'A user with this email already exists.' });
             return;
@@ -63,16 +65,13 @@ const createUser = async (req, res, next) => {
 
         const password_hash = await bcrypt.hash(password, 12);
         
-        // Auto bootstrap first Super Admin if email matches env variable
-        const isSuperAdmin = process.env.SUPER_ADMIN_EMAIL && email === process.env.SUPER_ADMIN_EMAIL;
-        
         const user = { 
             full_name, 
             dni_number, 
             age, 
-            email, 
+            email: normalizedEmail,
             password_hash, 
-            role: isSuperAdmin ? 'superadmin' : (role || 'user'), 
+            role: 'user',
             address, 
             skills 
         };
@@ -85,7 +84,11 @@ const createUser = async (req, res, next) => {
         }
         res.status(500).json({ message: 'Some error occurred while creating the user.' });
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while creating the user.' });
+        if (err.code === 11000) {
+            res.status(409).json({ message: 'A user with this email or GitHub account already exists.' });
+            return;
+        }
+        sendServerError(res, err, 'Some error occurred while creating the user.');
     }
 };
 
@@ -134,9 +137,11 @@ const updateUser = async (req, res, next) => {
             return;
         }
 
+        const normalizedEmail = email.toLowerCase();
+
         // Check for email conflicts
         const existingUser = await db.collection('users').findOne({ 
-            email, 
+            email: normalizedEmail,
             _id: { $ne: userId } 
         });
         if (existingUser) {
@@ -147,7 +152,7 @@ const updateUser = async (req, res, next) => {
         // Construct update operations using $set to prevent overwriting OAuth fields
         const updateFields = {};
         if (full_name !== undefined) updateFields.full_name = full_name;
-        if (email !== undefined) updateFields.email = email;
+        if (email !== undefined) updateFields.email = normalizedEmail;
         if (dni_number !== undefined) updateFields.dni_number = dni_number;
         if (age !== undefined) updateFields.age = age;
         if (address !== undefined) updateFields.address = address;
@@ -183,7 +188,7 @@ const updateUser = async (req, res, next) => {
         }
         res.status(200).json({ message: 'User updated successfully.' });
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while updating the user.' });
+        sendServerError(res, err, 'Some error occurred while updating the user.');
     }
 };
 
@@ -234,7 +239,7 @@ const deleteUser = async (req, res, next) => {
         }
         res.status(200).json({ message: 'User deleted successfully.' });
     } catch (err) {
-        res.status(500).json({ message: err.message || 'Some error occurred while deleting the user.' });
+        sendServerError(res, err, 'Some error occurred while deleting the user.');
     }
 };
 

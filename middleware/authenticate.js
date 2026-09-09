@@ -43,7 +43,7 @@ const canAccessJobPost = (req, res, next) => {
     const suppliedOwnerId = String(req.body?.created_by || req.body?.userId || req.params.created_by || '');
     const currentPostOwnerId = req.post ? String(req.post.created_by || req.post.user_id) : suppliedOwnerId;
 
-    if (!currentPostOwnerId || req.user.role === 'admin' || req.user.role === 'superadmin' || currentUserId === currentPostOwnerId) {
+    if (req.user.role === 'admin' || req.user.role === 'superadmin' || currentUserId === currentPostOwnerId) {
         return next();
     }
 

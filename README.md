@@ -1,6 +1,6 @@
 # Jobiz API
 
-Jobiz is a robust RESTful API built with Express and MongoDB that helps users offer their services and connect with clients. It supports secure OAuth2 authentication (via GitHub) and manual user accounts, job posts management, input validation, and secure route-level authorization.
+Jobiz is a REST API built with Express and MongoDB that helps users offer their services and connect with clients. It supports GitHub OAuth, local email/password accounts, job-post management, input validation, and route-level authorization.
 
 ---
 
@@ -15,7 +15,7 @@ Jobiz is a robust RESTful API built with Express and MongoDB that helps users of
 ## Local Setup & Installation
 
 ### 1. Prerequisites
-- **Node.js** (v18+ recommended)
+- **Node.js** (v20.19+ required)
 - **pnpm** (Recommended package manager)
 - **MongoDB** instance (Local or Atlas)
 
@@ -40,6 +40,7 @@ SESSION_SECRET=your-random-session-secret
 GITHUB_CLIENT_ID=your-github-client-id
 GITHUB_CLIENT_SECRET=your-github-client-secret
 GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
+SUPER_ADMIN_EMAIL=superadmin@example.com
 ```
 
 ### 4. Run the Development Server
@@ -48,6 +49,15 @@ GITHUB_CALLBACK_URL=http://localhost:3000/auth/github/callback
 pnpm dev
 ```
 The server will start running on the specified `PORT` (default: `3000`).
+
+Run the tests with:
+```bash
+pnpm test
+```
+
+Before any state-changing request, fetch `GET /auth/csrf` and send its value in the `X-CSRF-Token` header.
+Local login uses `POST /auth/login` with `{ "email": "...", "password": "..." }`.
+GitHub login uses `GET /auth/login`. Logout uses `POST /auth/logout`.
 
 ---
 
@@ -58,7 +68,7 @@ The project includes automatically generated Swagger API documentation.
 - **Access the docs:** Run the server and go to `http://localhost:3000/api-docs` in your browser.
 - **Regenerate documentation:** If you modify routes or swagger descriptions, regenerate the schema:
   ```bash
-  node swagger.js
+  pnpm swagger
   ```
 
 ---

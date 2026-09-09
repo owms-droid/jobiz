@@ -25,7 +25,13 @@ const logout = (req, res, next) => {
         if (err) {
             return next(err);
         }
-        res.status(200).json({ message: 'Logged out successfully.' });
+        req.session.destroy((sessionError) => {
+            if (sessionError) {
+                return next(sessionError);
+            }
+            res.clearCookie('connect.sid');
+            res.status(200).json({ message: 'Logged out successfully.' });
+        });
     });
 };
 

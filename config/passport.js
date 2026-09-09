@@ -1,5 +1,7 @@
 const passport = require('passport');
 const GitHubStrategy = require('passport-github2').Strategy;
+const LocalStrategy = require('passport-local').Strategy;
+const bcrypt = require('bcryptjs');
 const mongodb = require('../data/database');
 
 const hasGitHubConfig = () =>
@@ -12,7 +14,7 @@ const hasGitHubConfig = () =>
 const buildGitHubUserRecord = (profile) => ({
     githubId: String(profile.id),
     full_name: profile.displayName || profile.username || 'GitHub User',
-    email: profile.emails?.[0]?.value || (profile.username ? `${profile.username}@github-user.local` : ''),
+    email: (profile.emails?.[0]?.value || (profile.username ? `${profile.username}@github-user.local` : '')).toLowerCase(),
     role: 'user',
     avatar: profile.photos?.[0]?.value || '',
     created_at: new Date().toISOString(),
@@ -60,9 +62,30 @@ const findOrCreateGithubUser = async (db, profile) => {
         return user;
     }
 
+    if (normalizedProfile.email && process.env.SUPER_ADMIN_EMAIL && normalizedProfile.email === process.env.SUPER_ADMIN_EMAIL.toLowerCase()) {
+        const existingSuperAdmin = await collection.findOne({ role: 'superadmin' });
+        if (!existingSuperAdmin) {
+            normalizedProfile.role = 'superadmin';
+        }
+    }
+
     const result = await collection.insertOne(normalizedProfile);
     return { _id: result.insertedId, ...normalizedProfile };
 };
+
+passport.use(
+    new LocalStrategy({ usernameField: 'email' }, async (email, password, done) => {
+        try {
+            const user = await mongodb.getDatabase().db().collection('users').findOne({ email: email.toLowerCase() });
+            if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
+                return done(null, false, { message: 'Invalid email or password.' });
+            }
+            return done(null, user);
+        } catch (err) {
+            return done(err);
+        }
+    })
+);
 
 if (hasGitHubConfig()) {
     passport.use(
@@ -71,6 +94,7 @@ if (hasGitHubConfig()) {
                 clientID: process.env.GITHUB_CLIENT_ID,
                 clientSecret: process.env.GITHUB_CLIENT_SECRET,
                 callbackURL: process.env.GITHUB_CALLBACK_URL,
+                state: true,
             },
             async (accessToken, refreshToken, profile, done) => {
                 try {

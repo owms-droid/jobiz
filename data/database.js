@@ -14,10 +14,15 @@ const initDb = (callback) => {
             // Database-level constraints validation
             // Creates a unique index on 'email' to guarantee email uniqueness at the schema level.
             try {
-                await client.db().collection('users').createIndex({ email: 1 }, { unique: true });
-                console.log('Database constraints: verified unique index on users.email');
+                const users = client.db().collection('users');
+                const posts = client.db().collection('job_posts');
+                await users.createIndex({ email: 1 }, { unique: true });
+                await users.createIndex({ githubId: 1 }, { unique: true, sparse: true });
+                await posts.createIndex({ user_id: 1 });
+                await posts.createIndex({ status: 1, expires_at: 1 });
+                console.log('Database constraints: verified required indexes');
             } catch (indexErr) {
-                console.error('Database constraints warning: failed to verify unique index on users.email', indexErr);
+                return callback(indexErr);
             }
 
             callback(null, database);
